@@ -1,26 +1,37 @@
 from langgraph.graph import StateGraph, END
-from state import AgentState, KitchenState
-from parser import extract_kitchen_data
-from search import find_recipes_online
+from state import AgentState
+from parser import extract_and_merge_data, llm # Importiamo anche llm
+from search import get_best_recipe_url
+from scraper import scrape_recipe_text
 
-def parse_input_node(state: AgentState):
-    user_msg = state["messages"][-1]["content"]
-    new_kitchen_state = extract_kitchen_data(user_msg, state["state"])
-    return {"state": new_kitchen_state}
+def analyzer_node(state: AgentState):
+    new_state = extract_and_merge_data(state["messages"][-1]["content"], state["state"])
+    return {"state": new_state}
 
-def recipe_search_node(state: AgentState):
-    recipes = find_recipes_online(state["state"].ingredients, state["state"].preferences)
-    updated_state = state["state"]
-    updated_state.found_recipes = [recipes]
-    return {"state": updated_state}
+def search_and_scrape_node(state: AgentState):
+    current_ks = state["state"]
+    # Cerchiamo solo se non ci sono dubbi e abbiamo almeno 2 ingredienti
+    if not current_ks.missing_info_reason and len(current_ks.inventory) >= 2:
+        url = get_best_recipe_url(current_ks)
+        if url:
+            raw_text = scrape_recipe_text(url)
+            # Chiediamo all'LLM di pulire il testo grezzo (Refinement)
+            prompt = f"Estrai solo la ricetta (ingredienti e passaggi) da questo testo disordinato:\n\n{raw_text}"
+            clean_recipe = llm.invoke(prompt).content
+            current_ks.found_recipes = [clean_recipe]
+    return {"state": current_ks}
 
-# Costruzione del Grafo
 workflow = StateGraph(AgentState)
-workflow.add_node("parser", parse_input_node)
-workflow.add_node("search", recipe_search_node)
+workflow.add_node("analyzer", analyzer_node)
+workflow.add_node("search_scrape", search_and_scrape_node)
 
-workflow.set_entry_point("parser")
-workflow.add_edge("parser", "search") # Semplificato per l'esempio
-workflow.add_edge("search", END)
+workflow.set_entry_point("analyzer")
 
+def router(state: AgentState):
+    if state["state"].missing_info_reason:
+        return END
+    return "search_scrape"
+
+workflow.add_conditional_edges("analyzer", router)
+workflow.add_edge("search_scrape", END)
 app = workflow.compile()
