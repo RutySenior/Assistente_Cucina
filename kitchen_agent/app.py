@@ -1,107 +1,109 @@
-# app.py
 import streamlit as st
 from graph import app
 from state import KitchenState
 
-st.set_page_config(page_title="Chef Agent AI", layout="wide")
+st.set_page_config(page_title="Chef Agent AI", page_icon="👨‍🍳", layout="wide")
 
+# 1. Inizializzazione Session State
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "kitchen_state" not in st.session_state:
     st.session_state.kitchen_state = KitchenState()
 
-# Sidebar
+# --- SIDEBAR (Sempre fissa a sinistra) ---
 with st.sidebar:
-    st.header("🔍 Monitor Stato Agente")
-    res_state = st.session_state.kitchen_state
+    st.header("🔍 Stato Agente")
+    ks = st.session_state.kitchen_state
 
-    # --- SEZIONE INVENTARIO ---
+    # 1. DISPENSA
     st.subheader("📦 Dispensa")
-    if res_state.inventory:
-        for ing in res_state.inventory:
-            icon = "⏰" if ing.is_expiring else "🟢"
-            st.write(f"{icon} **{ing.name}** ({ing.quantity})")
-    else:
-        st.caption("Nessun ingrediente.")
+    for i in ks.inventory:
+        status = "⏰" if i.is_expiring else "🟢"
+        st.write(f"{status} **{i.name}** ({i.quantity})")
 
-    # --- SEZIONE GUSTI (DISLIKED) ---
-    if res_state.disliked_ingredients:
+    # 2. GUSTI (Dislikes)
+    if ks.disliked_ingredients:
         st.markdown("---")
         st.subheader("🚫 Gusti No")
-        for item in res_state.disliked_ingredients:
-            st.warning(f"**{item}**") # Giallo per i gusti negativi
+        for item in ks.disliked_ingredients:
+            st.warning(f"Senza: {item}")
 
-    # --- SEZIONE SALUTE & ALLERGIE (HEALTH) ---
-    if res_state.health_constraints:
+    # 3. SALUTE (Constraints)
+    if ks.health_constraints:
         st.markdown("---")
         st.subheader("⚕️ Salute & Allergie")
-        for item in res_state.health_constraints:
-            st.error(f"**{item}**") # Rosso per vincoli di salute/allergie
+        for item in ks.health_constraints:
+            st.error(f"Vincolo: {item}")
 
-    # --- SEZIONE PREFERENZE (POSITIVE) ---
-    if res_state.preferences:
+    # 4. PREFERENZE (Likes)
+    if ks.preferences:
         st.markdown("---")
         st.subheader("😋 Preferenze")
-        for item in res_state.preferences:
-            st.success(f"**{item}**") # Verde per preferenze positive
+        for item in ks.preferences:
+            st.success(f"Gusto: {item}")
 
-    st.markdown("---")
     if st.button("Reset Totale"):
         st.session_state.kitchen_state = KitchenState()
         st.session_state.messages = []
         st.rerun()
 
-st.title("👨‍Chef Agent: Ricette Intelligenti")
+st.title("👨‍🍳 Il tuo Chef Personale")
 
-# Chat
-for msg in st.session_state.messages:
-    st.chat_message(msg["role"]).write(msg["content"])
+# --- 2. CICLO DI VISUALIZZAZIONE CHAT (Cronologico) ---
+# Usiamo un indice per sapere se siamo all'ultimo messaggio
+for index, msg in enumerate(st.session_state.messages):
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        
+        # Mostra le ricette solo se siamo all'ultimo messaggio dell'assistente
+        if (msg["role"] == "assistant" and 
+            index == len(st.session_state.messages) - 1 and 
+            st.session_state.kitchen_state.found_recipes):
+            
+            st.write("---")
+            tabs = st.tabs([f"🍴 {r.name}" for r in st.session_state.kitchen_state.found_recipes])
+            
+            for i, tab in enumerate(tabs):
+                recipe = st.session_state.kitchen_state.found_recipes[i]
+                with tab:
+                    # Immagine reale recuperata dal tool
+                    if recipe.image_url:
+                        st.image(recipe.image_url, use_container_width=True)
+                    
+                    c1, c2 = st.columns([1, 2])
+                    with c1:
+                        st.info(f"⏱️ **Tempo:** {recipe.prep_time}")
+                        st.markdown("**🛒 Ingredienti (Dosi per 2):**")
+                        for item in recipe.ingredients:
+                            st.write(f"- {item}")
+                    with c2:
+                        st.markdown("**👨‍🍳 Preparazione Passo-Passo**")
+                        st.write(recipe.description)
 
-# Visualizzazione Ricette
-res_state = st.session_state.kitchen_state # Definiamo res_state prima dell'uso
-if res_state.found_recipes:
-    st.divider()
-    tabs = st.tabs([r.name for r in res_state.found_recipes])
-    for i, tab in enumerate(tabs):
-        r = res_state.found_recipes[i]
-        with tab:
-            if r.image_url: st.image(r.image_url, width=400)
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.info(f"Tempo: {r.prep_time}")
-                st.write("**Ingredienti:**")
-                for ing in r.ingredients: st.write(f"- {ing}")
-            with col2:
-                st.write("**Preparazione:**")
-                st.write(r.description)
-
-# app.py (Sezione di gestione dell'input)
-if prompt := st.chat_input("Cosa hai in cucina?"):
+# --- 3. INPUT UTENTE (Sempre in fondo) ---
+if prompt := st.chat_input("Scrivi qui cosa hai in cucina..."):
+    # Aggiungi messaggio utente
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Esecuzione Grafo
-    try:
+    with st.spinner("Lo Chef sta pensando..."):
+        # Esecuzione Grafo
         result = app.invoke({
             "messages": st.session_state.messages, 
             "state": st.session_state.kitchen_state
         })
         
-        # Aggiorna lo stato globale
+        # Aggiorna lo stato
         st.session_state.kitchen_state = result["state"]
         new_ks = st.session_state.kitchen_state
         
-        # DEFINIZIONE DELLA RISPOSTA
-        if new_ks.missing_info_reason:
-            # Se l'agente ha una domanda, usiamola come risposta
-            response = new_ks.missing_info_reason
-        elif new_ks.found_recipes:
-            response = "Ho trovato delle ottime ricette! Guarda le schede sotto la chat."
+        # Determina la risposta testuale
+        if new_ks.found_recipes:
+            ans = "Ho trovato delle ricette basate su quello che mi hai detto. Ecco le opzioni:"
+        elif new_ks.missing_info_reason:
+            ans = new_ks.missing_info_reason
         else:
-            response = "Ho capito, cos'altro hai?"
+            ans = "Ho capito, cos'altro hai a disposizione?"
 
-        # AGGIUNGIAMO LA RISPOSTA ALLA CRONOLOGIA
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        # Aggiungi risposta assistente
+        st.session_state.messages.append({"role": "assistant", "content": ans})
         st.rerun()
-
-    except Exception as e:
-        st.error(f"Errore: {e}")
