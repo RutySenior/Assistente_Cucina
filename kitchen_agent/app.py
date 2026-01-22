@@ -11,29 +11,54 @@ TOKEN_LIMIT = 30000
 if "messages" not in st.session_state: st.session_state.messages = []
 if "kitchen_state" not in st.session_state: st.session_state.kitchen_state = KitchenState()
 
-# --- SIDEBAR: MONITOR RISORSE ---
+# --- SIDEBAR DI ISPEZIONE COMPLETA ---
 with st.sidebar:
-    st.header("📊 Sistema & Risorse")
-    used_tokens = st.session_state.kitchen_state.total_tokens_used
-    
-    # Barra dei token
-    col1, col2 = st.columns(2)
-    col1.metric("Token Usati", used_tokens)
-    col2.metric("Limite", TOKEN_LIMIT)
-    st.progress(min(used_tokens / TOKEN_LIMIT, 1.0))
-    
-    if used_tokens > TOKEN_LIMIT:
-        st.error("🛑 LIMITE TOKEN RAGGIUNTO. Reset necessario.")
-    elif used_tokens > TOKEN_LIMIT * 0.8:
-        st.warning("⚠️ Attenzione: Risorse quasi esaurite.")
-
-    st.divider()
-    st.subheader("🛒 Stato Dispensa")
+    st.header("🔍 Monitor Stato Agente")
     ks = st.session_state.kitchen_state
-    for i in ks.inventory:
-        st.write(f"• **{i.name}** ({i.quantity})")
+
+    # 1. MONITOR TOKEN (Requisito Gestione Risorse)
+    st.subheader("📊 Risorse")
+    col1, col2 = st.columns(2)
+    col1.metric("Token", ks.total_tokens_used)
+    col2.metric("Passi", ks.reflection_steps)
+    st.progress(min(ks.total_tokens_used / TOKEN_LIMIT, 1.0))
     
-    if st.button("Reset Sessione"):
+    st.divider()
+
+    # 2. DISPENSA (Ingredienti e Scadenze)
+    st.subheader("📦 Dispensa")
+    if ks.inventory:
+        for i in ks.inventory:
+            icon = "⏰" if i.is_expiring else "🟢"
+            st.write(f"{icon} **{i.name}**")
+            st.caption(f"Quantità: {i.quantity}")
+    else:
+        st.write("Dispensa vuota.")
+
+    # 3. GUSTI E PREFERENZE (Preferences - In Verde)
+    if ks.preferences:
+        st.divider()
+        st.subheader("😋 Preferenze")
+        for pref in ks.preferences:
+            st.success(f"Gusto: {pref}")
+
+    # 4. GUSTI "NO" (Disliked - In Giallo)
+    if ks.disliked_ingredients:
+        st.divider()
+        st.subheader("🚫 Gusti No")
+        for dislike in ks.disliked_ingredients:
+            st.warning(f"Senza: {dislike}")
+
+    # 5. VINCOLI SALUTE E ALLERGIE (Health - In Rosso)
+    if ks.health_constraints:
+        st.divider()
+        st.subheader("⚕️ Salute & Allergie")
+        for constraint in ks.health_constraints:
+            st.error(f"Vincolo: {constraint}")
+
+    # 6. RESET
+    st.divider()
+    if st.button("Svuota tutto (Reset)"):
         st.session_state.messages = []
         st.session_state.kitchen_state = KitchenState()
         st.rerun()
