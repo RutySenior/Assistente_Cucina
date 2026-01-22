@@ -33,10 +33,15 @@ def generator_node(state: AgentState):
     
     recipe_gen = llm.with_structured_output(RecipeList)
     prompt = f"""
-    Sei lo Chef. Crea 3 ricette basandoti su: {current_ks.json()}
-    Contesto web: {context}
-    FEEDBACK CRITICO PRECEDENTE: {current_ks.critic_feedback}
-    REGOLE: Quantità per 2 persone, ITALIANO, search_keywords_en in inglese.
+    Sei uno Chef Stellato. Crea 3 ricette basandoti su: {current_ks.json()}
+    
+    REGOLE PER IL PROCEDIMENTO:
+    1. Per ogni ricetta, il campo 'description' DEVI scrivere un PROCEDIMENTO PROFESSIONALE.
+    2. Dividi la spiegazione in fasi chiare (es: 1. Preparazione, 2. Cottura, 3. Impiattamento).
+    3. Sii molto dettagliato: spiega come tagliare, quanto scaldare, come capire se è cotto.
+    4. Usa un tono incoraggiante ma tecnico.
+    
+    LINGUA: ITALIANO.
     """
     
     output = recipe_gen.invoke(prompt)

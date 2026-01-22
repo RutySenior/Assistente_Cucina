@@ -7,12 +7,12 @@ class Ingredient(BaseModel):
     is_expiring: bool = False
 
 class Recipe(BaseModel):
-    name: str
-    prep_time: str
-    ingredients: List[str] # Qui l'LLM scriverà "200g di Pasta"
-    description: str
+    name: str = Field(description="Nome del piatto")
+    prep_time: str = Field(description="Tempo stimato (es. 40 min)")
+    ingredients: List[str] = Field(description="Lista ingredienti e quantità precise")
+    description: str = Field(description="PROCEDIMENTO DETTAGLIATO PASSO-PASSO") # <--- Fondamentale
     image_url: Optional[str] = None
-    search_keywords_en: str = Field(description="3 parole chiave in inglese separate da virgola, es: 'pasta,tomato,basil'")
+    search_keywords_en: str = ""
 
 class RecipeList(BaseModel):
     recipes: List[Recipe] = Field(description="Lista di 3 ricette")
