@@ -1,109 +1,88 @@
+# app.py
 import streamlit as st
-from graph import app
+from graph import app, MAX_REFLECTION_STEPS
 from state import KitchenState
 
-st.set_page_config(page_title="Chef Agent AI", page_icon="👨‍🍳", layout="wide")
+st.set_page_config(page_title="Agentic Chef Pro", layout="wide", page_icon="👨‍🍳")
 
-# 1. Inizializzazione Session State
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "kitchen_state" not in st.session_state:
-    st.session_state.kitchen_state = KitchenState()
+# Budget token per il piano gratuito Groq
+TOKEN_LIMIT = 30000 
 
-# --- SIDEBAR (Sempre fissa a sinistra) ---
+if "messages" not in st.session_state: st.session_state.messages = []
+if "kitchen_state" not in st.session_state: st.session_state.kitchen_state = KitchenState()
+
+# --- SIDEBAR: MONITOR RISORSE ---
 with st.sidebar:
-    st.header("🔍 Stato Agente")
+    st.header("📊 Sistema & Risorse")
+    used_tokens = st.session_state.kitchen_state.total_tokens_used
+    
+    # Barra dei token
+    col1, col2 = st.columns(2)
+    col1.metric("Token Usati", used_tokens)
+    col2.metric("Limite", TOKEN_LIMIT)
+    st.progress(min(used_tokens / TOKEN_LIMIT, 1.0))
+    
+    if used_tokens > TOKEN_LIMIT:
+        st.error("🛑 LIMITE TOKEN RAGGIUNTO. Reset necessario.")
+    elif used_tokens > TOKEN_LIMIT * 0.8:
+        st.warning("⚠️ Attenzione: Risorse quasi esaurite.")
+
+    st.divider()
+    st.subheader("🛒 Stato Dispensa")
     ks = st.session_state.kitchen_state
-
-    # 1. DISPENSA
-    st.subheader("📦 Dispensa")
     for i in ks.inventory:
-        status = "⏰" if i.is_expiring else "🟢"
-        st.write(f"{status} **{i.name}** ({i.quantity})")
-
-    # 2. GUSTI (Dislikes)
-    if ks.disliked_ingredients:
-        st.markdown("---")
-        st.subheader("🚫 Gusti No")
-        for item in ks.disliked_ingredients:
-            st.warning(f"Senza: {item}")
-
-    # 3. SALUTE (Constraints)
-    if ks.health_constraints:
-        st.markdown("---")
-        st.subheader("⚕️ Salute & Allergie")
-        for item in ks.health_constraints:
-            st.error(f"Vincolo: {item}")
-
-    # 4. PREFERENZE (Likes)
-    if ks.preferences:
-        st.markdown("---")
-        st.subheader("😋 Preferenze")
-        for item in ks.preferences:
-            st.success(f"Gusto: {item}")
-
-    if st.button("Reset Totale"):
-        st.session_state.kitchen_state = KitchenState()
+        st.write(f"• **{i.name}** ({i.quantity})")
+    
+    if st.button("Reset Sessione"):
         st.session_state.messages = []
+        st.session_state.kitchen_state = KitchenState()
         st.rerun()
 
-st.title("👨‍🍳 Il tuo Chef Personale")
+# --- CHAT DISPLAY ---
+st.title("👨‍🍳 Chef Agent con Controllo Qualità")
 
-# --- 2. CICLO DI VISUALIZZAZIONE CHAT (Cronologico) ---
-# Usiamo un indice per sapere se siamo all'ultimo messaggio
 for index, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        
-        # Mostra le ricette solo se siamo all'ultimo messaggio dell'assistente
-        if (msg["role"] == "assistant" and 
-            index == len(st.session_state.messages) - 1 and 
-            st.session_state.kitchen_state.found_recipes):
-            
-            st.write("---")
-            tabs = st.tabs([f"🍴 {r.name}" for r in st.session_state.kitchen_state.found_recipes])
-            
-            for i, tab in enumerate(tabs):
-                recipe = st.session_state.kitchen_state.found_recipes[i]
-                with tab:
-                    # Immagine reale recuperata dal tool
-                    if recipe.image_url:
-                        st.image(recipe.image_url, use_container_width=True)
-                    
-                    c1, c2 = st.columns([1, 2])
-                    with c1:
-                        st.info(f"⏱️ **Tempo:** {recipe.prep_time}")
-                        st.markdown("**🛒 Ingredienti (Dosi per 2):**")
-                        for item in recipe.ingredients:
-                            st.write(f"- {item}")
-                    with c2:
-                        st.markdown("**👨‍🍳 Preparazione Passo-Passo**")
-                        st.write(recipe.description)
+        # Se l'ultimo messaggio è dello chef e ci sono ricette, mostrale
+        if msg["role"] == "assistant" and index == len(st.session_state.messages)-1:
+            if st.session_state.kitchen_state.found_recipes:
+                tabs = st.tabs([f"🍴 {r.name}" for r in st.session_state.kitchen_state.found_recipes])
+                for i, tab in enumerate(tabs):
+                    r = st.session_state.kitchen_state.found_recipes[i]
+                    with tab:
+                        if r.image_url: st.image(r.image_url, use_container_width=True)
+                        st.info(f"Tempo: {r.prep_time} | {r.search_keywords_en}")
+                        st.write(r.description)
 
-# --- 3. INPUT UTENTE (Sempre in fondo) ---
-if prompt := st.chat_input("Scrivi qui cosa hai in cucina..."):
-    # Aggiungi messaggio utente
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    with st.spinner("Lo Chef sta pensando..."):
-        # Esecuzione Grafo
-        result = app.invoke({
-            "messages": st.session_state.messages, 
-            "state": st.session_state.kitchen_state
-        })
+# --- CHAT INPUT ---
+if prompt := st.chat_input("Scrivi qui..."):
+    # Controllo preventivo token
+    if st.session_state.kitchen_state.total_tokens_used > TOKEN_LIMIT:
+        st.error("Non posso processare la richiesta: limite token superato.")
+    else:
+        st.session_state.messages.append({"role": "user", "content": prompt})
         
-        # Aggiorna lo stato
-        st.session_state.kitchen_state = result["state"]
-        new_ks = st.session_state.kitchen_state
-        
-        # Determina la risposta testuale
-        if new_ks.found_recipes:
-            ans = "Ho trovato delle ricette basate su quello che mi hai detto. Ecco le opzioni:"
-        elif new_ks.missing_info_reason:
-            ans = new_ks.missing_info_reason
-        else:
-            ans = "Ho capito, cos'altro hai a disposizione?"
+        with st.spinner("L'Agente Chef e il Critico stanno lavorando..."):
+            try:
+                # Invocazione Grafo
+                result = app.invoke({
+                    "messages": st.session_state.messages,
+                    "state": st.session_state.kitchen_state
+                })
+                
+                st.session_state.kitchen_state = result["state"]
+                res = st.session_state.kitchen_state
+                
+                # Messaggio di risposta
+                if res.missing_info_reason:
+                    ans = res.missing_info_reason
+                elif res.critic_feedback:
+                    ans = "Ho provato a generare le ricette ma il Critico ha trovato dei problemi. Ecco il meglio che sono riuscito a fare."
+                else:
+                    ans = "Ecco 3 ricette approvate dal Critico Gastronomico!"
 
-        # Aggiungi risposta assistente
-        st.session_state.messages.append({"role": "assistant", "content": ans})
-        st.rerun()
+                st.session_state.messages.append({"role": "assistant", "content": ans})
+                st.rerun()
+            except Exception as e:
+                st.error(f"Errore tecnico: {e}")

@@ -24,6 +24,10 @@ class KitchenState(BaseModel):
     health_constraints: List[str] = Field(default_factory=list)
     missing_info_reason: Optional[str] = None
     found_recipes: List[Recipe] = Field(default_factory=list)
+    # NUOVI CAMPI
+    critic_feedback: Optional[str] = None
+    reflection_steps: int = 0
+    total_tokens_used: int = 0
 
 class AgentState(TypedDict):
     state: KitchenState
